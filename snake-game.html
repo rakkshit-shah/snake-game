@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SERPENT — Ultimate Snake</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #050810;
+    --panel: #0a0f1e;
+    --border: #1a2540;
+    --p1: #00ffaa;
+    --p1d: #00aa66;
+    --p2: #ff4466;
+    --p2d: #aa2244;
+    --food: #ffcc00;
+    --bonus: #ff88ff;
+    --portal: #44aaff;
+    --wall: #334466;
+    --glow1: rgba(0,255,170,0.4);
+    --glow2: rgba(255,68,102,0.4);
+    --text: #c0d8ff;
+    --dim: #4466aa;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content:'';
+    position:fixed;
+    inset:0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px);
+    pointer-events:none;
+    z-index:999;
+  }
+
+  /* CRT flicker */
+  @keyframes flicker { 0%,100%{opacity:1} 92%{opacity:.98} 93%{opacity:.92} 95%{opacity:.99} }
+  body { animation: flicker 8s infinite; }
+
+  header {
+    width:100%;
+    padding: 18px 32px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(0,255,170,0.05) 0%, transparent 100%);
+  }
+
+  .logo {
+    font-family:'Orbitron',sans-serif;
+    font-weight:900;
+    font-size:2rem;
+    color: var(--p1);
+    letter-spacing:.2em;
+    text-shadow: 0 0 20px var(--glow1), 0 0 40px var(--glow1);
+  }
+
+  .logo span { color: var(--p2); text-shadow: 0 0 20px var(--glow2); }
+
+  .header-stats {
+    display:flex; gap:24px;
+    font-size:.75rem;
+    color: var(--dim);
+  }
+
+  .header-stats b { color: var(--p1); }
+
+  /* ── MAIN LAYOUT ── */
+  .layout {
+    display:grid;
+    grid-template-columns: 200px 1fr 200px;
+    gap:16px;
+    padding:16px;
+    width:100%;
+    max-width:1100px;
+  }
+
+  /* ── PANELS ── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius:4px;
+    padding:14px;
+  }
+
+  .panel-title {
+    font-family:'Orbitron',sans-serif;
+    font-size:.6rem;
+    letter-spacing:.2em;
+    color: var(--dim);
+    text-transform:uppercase;
+    margin-bottom:12px;
+    padding-bottom:8px;
+    border-bottom:1px solid var(--border);
+  }
+
+  /* ── SCORE DISPLAYS ── */
+  .score-box { margin-bottom:16px; }
+  .score-label { font-size:.65rem; color: var(--dim); margin-bottom:4px; }
+  .score-val {
+    font-family:'Orbitron',sans-serif;
+    font-size:2rem;
+    font-weight:700;
+    line-height:1;
+  }
+  .score-val.p1 { color: var(--p1); text-shadow: 0 0 15px var(--glow1); }
+  .score-val.p2 { color: var(--p2); text-shadow: 0 0 15px var(--glow2); }
+
+  .stat-row {
+    display:flex; justify-content:space-between;
+    font-size:.7rem;
+    color: var(--dim);
+    padding:4px 0;
+    border-bottom:1px solid rgba(255,255,255,0.04);
+  }
+  .stat-row span { color: var(--text); }
+
+  /* ── CANVAS AREA ── */
+  .game-wrap {
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
+  }
+
+  #gameCanvas {
+    border: 1px solid var(--border);
+    border-radius:4px;
+    display:block;
+    box-shadow: 0 0 40px rgba(0,255,170,0.08), inset 0 0 60px rgba(0,0,0,0.5);
+    image-rendering: pixelated;
+    cursor: none;
+  }
+
+  /* ── HUD BAR ── */
+  .hud {
+    display:flex;
+    gap:12px;
+    width:100%;
+    justify-content:center;
+    flex-wrap:wrap;
+  }
+
+  .hud-chip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius:3px;
+    padding:5px 12px;
+    font-size:.7rem;
+    color: var(--dim);
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+
+  .hud-chip .val { color: var(--p1); font-family:'Orbitron',sans-serif; font-size:.75rem; }
+  .hud-chip.warn .val { color: var(--food); }
+
+  /* ── CONTROLS PANEL ── */
+  .mode-btn {
+    display:block;
+    width:100%;
+    padding:7px 10px;
+    margin-bottom:6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius:3px;
+    color: var(--dim);
+    font-family:'Share Tech Mono',monospace;
+    font-size:.7rem;
+    cursor:pointer;
+    text-align:left;
+    transition: all .15s;
+    letter-spacing:.05em;
+  }
+
+  .mode-btn:hover { border-color: var(--p1); color: var(--p1); background: rgba(0,255,170,0.05); }
+  .mode-btn.active { border-color: var(--p1); color: var(--bg); background: var(--p1); }
+  .mode-btn.p2active { border-color: var(--p2); color: var(--bg); background: var(--p2); }
+
+  .key-hint {
+    font-size:.62rem;
+    color: var(--dim);
+    margin-top:8px;
+    line-height:1.8;
+  }
+
+  .key-hint kbd {
+    display:inline-block;
+    padding:1px 5px;
+    border:1px solid var(--border);
+    border-radius:2px;
+    color: var(--text);
+    font-size:.6rem;
+    background: rgba(255,255,255,0.05);
+  }
+
+  /* ── OVERLAY ── */
+  #overlay {
+    position:absolute;
+    inset:0;
+    background: rgba(5,8,16,0.92);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    border-radius:4px;
+    text-align:center;
+    gap:16px;
+    z-index:10;
+  }
+
+  .overlay-title {
+    font-family:'Orbitron',sans-serif;
+    font-size:2.2rem;
+    font-weight:900;
+    color: var(--p1);
+    text-shadow: 0 0 30px var(--glow1);
+    letter-spacing:.1em;
+  }
+
+  .overlay-sub {
+    font-size:.8rem;
+    color: var(--dim);
+    max-width:280px;
+    line-height:1.7;
+  }
+
+  .start-btn {
+    padding:12px 36px;
+    background: var(--p1);
+    color: var(--bg);
+    border:none;
+    border-radius:3px;
+    font-family:'Orbitron',sans-serif;
+    font-size:.9rem;
+    font-weight:700;
+    letter-spacing:.15em;
+    cursor:pointer;
+    text-transform:uppercase;
+    transition: all .15s;
+    box-shadow: 0 0 20px var(--glow1);
+  }
+
+  .start-btn:hover { transform:scale(1.04); box-shadow: 0 0 35px var(--glow1); }
+
+  .winner-badge {
+    font-family:'Orbitron',sans-serif;
+    font-size:1.1rem;
+    padding:8px 24px;
+    border-radius:3px;
+  }
+
+  .badge-p1 { background: var(--glow1); color: var(--p1); border:1px solid var(--p1); }
+  .badge-p2 { background: var(--glow2); color: var(--p2); border:1px solid var(--p2); }
+
+  /* ── LEVEL DISPLAY ── */
+  .level-bar {
+    display:flex;
+    gap:4px;
+    flex-wrap:wrap;
+    margin-top:8px;
+  }
+
+  .level-dot {
+    width:10px; height:10px;
+    border-radius:50%;
+    border:1px solid var(--border);
+    background: transparent;
+    transition: all .3s;
+  }
+
+  .level-dot.done { background: var(--p1); border-color: var(--p1); box-shadow: 0 0 6px var(--glow1); }
+  .level-dot.current { background: var(--food); border-color: var(--food); animation: pulse .8s infinite alternate; }
+
+  @keyframes pulse { from{opacity:.6} to{opacity:1} }
+
+  /* ── POWERUP ICONS ── */
+  .power-row {
+    display:flex;
+    gap:6px;
+    margin-top:6px;
+    flex-wrap:wrap;
+  }
+
+  .power-chip {
+    padding:3px 8px;
+    border-radius:2px;
+    font-size:.62rem;
+    opacity:.4;
+    border:1px solid transparent;
+    transition: all .3s;
+  }
+
+  .power-chip.active {
+    opacity:1;
+    animation: glow-pulse .6s infinite alternate;
+  }
+
+  .power-chip.speed { background: rgba(255,200,0,0.15); border-color: var(--food); color: var(--food); }
+  .power-chip.ghost { background: rgba(68,170,255,0.15); border-color: var(--portal); color: var(--portal); }
+  .power-chip.mega { background: rgba(255,136,255,0.15); border-color: var(--bonus); color: var(--bonus); }
+  .power-chip.slow { background: rgba(0,255,170,0.15); border-color: var(--p1); color: var(--p1); }
+
+  @keyframes glow-pulse { from{box-shadow:none} to{box-shadow:0 0 8px currentColor} }
+
+  .canvas-container { position:relative; }
+
+  /* mobile */
+  @media(max-width:720px){
+    .layout { grid-template-columns:1fr; }
+    .side-panel { display:none; }
+    #gameCanvas { width:100% !important; height:auto !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">SER<span>PENT</span></div>
+  <div class="header-stats">
+    <div>HIGH SCORE: <b id="hiScore">0</b></div>
+    <div>SESSION: <b id="gamesPlayed">0</b> GAMES</div>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- LEFT PANEL -->
+  <div class="panel side-panel">
+    <div class="panel-title">Player 1</div>
+    <div class="score-box">
+      <div class="score-label">SCORE</div>
+      <div class="score-val p1" id="score1">0</div>
+    </div>
+    <div class="stat-row">LENGTH <span id="len1">3</span></div>
+    <div class="stat-row">LIVES <span id="lives1">3</span></div>
+    <div class="stat-row">SPEED <span id="spd1">1x</span></div>
+
+    <div class="panel-title" style="margin-top:16px">POWERUPS</div>
+    <div class="power-row">
+      <div class="power-chip speed" id="pw-speed1">⚡ FAST</div>
+      <div class="power-chip ghost" id="pw-ghost1">👻 GHOST</div>
+      <div class="power-chip mega" id="pw-mega1">★ MEGA</div>
+      <div class="power-chip slow" id="pw-slow1">❄ SLOW</div>
+    </div>
+
+    <div class="panel-title" style="margin-top:16px">LEVEL</div>
+    <div class="level-bar" id="levelBar"></div>
+  </div>
+
+  <!-- CENTER -->
+  <div class="game-wrap">
+    <div class="canvas-container">
+      <canvas id="gameCanvas" width="560" height="560"></canvas>
+      <div id="overlay">
+        <div class="overlay-title" id="overlayTitle">SERPENT</div>
+        <div class="overlay-sub" id="overlaySub">Choose your mode and press START<br>WASD or ARROWS to move</div>
+        <div id="winnerBadge"></div>
+        <button class="start-btn" id="startBtn">START GAME</button>
+      </div>
+    </div>
+    <div class="hud">
+      <div class="hud-chip">MODE <span class="val" id="hudMode">CLASSIC</span></div>
+      <div class="hud-chip">LEVEL <span class="val" id="hudLevel">1</span></div>
+      <div class="hud-chip warn">TIME <span class="val" id="hudTime">∞</span></div>
+      <div class="hud-chip">COMBO <span class="val" id="hudCombo">x1</span></div>
+      <div class="hud-chip">FOOD <span class="val" id="hudFood">🍎</span></div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel side-panel">
+    <div class="panel-title">GAME MODE</div>
+    <button class="mode-btn active" data-mode="classic" onclick="setMode('classic',this)">◆ CLASSIC</button>
+    <button class="mode-btn" data-mode="timed" onclick="setMode('timed',this)">⏱ TIME ATTACK</button>
+    <button class="mode-btn" data-mode="maze" onclick="setMode('maze',this)">▦ MAZE</button>
+    <button class="mode-btn" data-mode="portal" onclick="setMode('portal',this)">⊙ PORTAL</button>
+    <button class="mode-btn" data-mode="survival" onclick="setMode('survival',this)">☠ SURVIVAL</button>
+    <button class="mode-btn" data-mode="multiplayer" onclick="setMode('multiplayer',this)">⚔ 2-PLAYER</button>
+    <button class="mode-btn" data-mode="battle" onclick="setMode('battle',this)">💥 BATTLE</button>
+
+    <div class="panel-title" style="margin-top:16px">PLAYER 2</div>
+    <div class="score-val p2" id="score2" style="font-size:1.6rem">—</div>
+    <div class="stat-row" style="margin-top:6px">LENGTH <span id="len2">—</span></div>
+    <div class="stat-row">LIVES <span id="lives2">—</span></div>
+
+    <div class="panel-title" style="margin-top:16px">CONTROLS P2</div>
+    <div class="key-hint">
+      <kbd>↑↓←→</kbd> Move<br>
+      P1: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><br>
+      <kbd>P</kbd> Pause &nbsp; <kbd>R</kbd> Restart
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const COLS = 28, ROWS = 28;
+const CELL = canvas.width / COLS;
+
+let gameMode = 'classic';
+let gameState = 'idle'; // idle, running, paused, gameover
+let animId, gameLoop, lastTime = 0;
+let level = 1, gamesPlayed = 0, hiScore = 0;
+let timerLeft = 60, comboCount = 1, lastFoodTime = 0;
+
+// ── SOUNDS (Web Audio API) ──
+const AC = new (window.AudioContext || window.webkitAudioContext)();
+function beep(freq, dur, type='square', vol=0.15) {
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.connect(g); g.connect(AC.destination);
+  o.type = type; o.frequency.setValueAtTime(freq, AC.currentTime);
+  g.gain.setValueAtTime(vol, AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + dur);
+  o.start(); o.stop(AC.currentTime + dur);
+}
+function eatSound() { beep(440, 0.08); setTimeout(()=>beep(660,0.06),60); }
+function dieSound() { beep(200,0.3,'sawtooth',0.3); setTimeout(()=>beep(100,0.5,'sawtooth',0.2),200); }
+function levelSound() { [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.15,'sine',0.2),i*80)); }
+function bonusSound() { [784,880,988,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.1,'sine',0.15),i*50)); }
+
+// ── SNAKE CLASS ──
+class Snake {
+  constructor(startX, startY, color, colorDark, dir) {
+    this.body = [{x:startX,y:startY},{x:startX-dir.x,y:startY-dir.y},{x:startX-dir.x*2,y:startY-dir.y*2}];
+    this.dir = {...dir};
+    this.nextDir = {...dir};
+    this.color = color;
+    this.colorDark = colorDark;
+    this.grow = 0;
+    this.alive = true;
+    this.score = 0;
+    this.lives = 3;
+    this.powerup = null;
+    this.powerTimer = 0;
+    this.speedMult = 1;
+    this.invincible = false;
+  }
+  get head() { return this.body[0]; }
+  get length() { return this.body.length; }
+  setDir(x, y) {
+    if (x === -this.dir.x && y === -this.dir.y) return;
+    this.nextDir = {x, y};
+  }
+  move(walls, portals) {
+    this.dir = {...this.nextDir};
+    let nx = this.head.x + this.dir.x;
+    let ny = this.head.y + this.dir.y;
+
+    // ghost powerup — pass through walls
+    if (this.powerup === 'ghost') {
+      nx = (nx + COLS) % COLS;
+      ny = (ny + ROWS) % ROWS;
+    } else if (gameMode === 'classic' || gameMode === 'timed' || gameMode === 'multiplayer' || gameMode === 'battle' || gameMode === 'survival') {
+      // wrap
+      nx = (nx + COLS) % COLS;
+      ny = (ny + ROWS) % ROWS;
+    } else if (gameMode === 'maze') {
+      // hit wall check later
+    } else if (gameMode === 'portal') {
+      nx = (nx + COLS) % COLS;
+      ny = (ny + ROWS) % ROWS;
+    }
+
+    // portal teleport
+    if (gameMode === 'portal' && portals.length >= 2) {
+      const pi = portals.findIndex(p => p.x === nx && p.y === ny);
+      if (pi !== -1) {
+        const other = portals[(pi + 1) % 2];
+        nx = other.x; ny = other.y;
+        bonusSound();
+      }
+    }
+
+    const newHead = {x:nx, y:ny};
+    this.body.unshift(newHead);
+    if (this.grow > 0) { this.grow--; }
+    else { this.body.pop(); }
+
+    // powerup timer
+    if (this.powerup) {
+      this.powerTimer--;
+      if (this.powerTimer <= 0) { this.powerup = null; this.speedMult = 1; this.invincible = false; }
+    }
+    return newHead;
+  }
+  hitSelf() {
+    const h = this.head;
+    return this.body.slice(1).some(s => s.x === h.x && s.y === h.y);
+  }
+  hitWall(walls) {
+    const h = this.head;
+    if (gameMode === 'maze') {
+      if (h.x < 0 || h.x >= COLS || h.y < 0 || h.y >= ROWS) return true;
+    }
+    return walls.some(w => w.x === h.x && w.y === h.y);
+  }
+  hitSnake(other) {
+    return other.body.some(s => s.x === this.head.x && s.y === this.head.y);
+  }
+  applyPowerup(type) {
+    this.powerup = type;
+    this.powerTimer = 60;
+    if (type === 'speed') this.speedMult = 2;
+    else if (type === 'slow') this.speedMult = 0.5;
+    else if (type === 'ghost') this.invincible = true;
+    else if (type === 'mega') { this.grow += 8; }
+    bonusSound();
+  }
+}
+
+// ── GAME STATE ──
+let snakes = [], foods = [], walls = [], portals = [], bonusItems = [];
+let frameCount = 0, baseSpeed = 8;
+
+function getSpeed() {
+  const lvlBonus = (level - 1) * 1.2;
+  const base = baseSpeed + lvlBonus;
+  return Math.min(base, 20);
+}
+
+function initLevel() {
+  walls = []; portals = []; bonusItems = [];
+  foods = [];
+  frameCount = 0;
+  comboCount = 1;
+  timerLeft = Math.max(90 - (level-1)*5, 30);
+  updateLevelBar();
+
+  // Maze walls
+  if (gameMode === 'maze') {
+    generateMaze();
+  }
+  // Survival — increasing walls
+  if (gameMode === 'survival') {
+    for (let i = 0; i < level * 3; i++) spawnWall();
+  }
+  // Portals
+  if (gameMode === 'portal') {
+    portals = [{x:3,y:3},{x:COLS-4,y:ROWS-4}];
+  }
+
+  spawnFood();
+  if (gameMode !== 'classic') spawnFood();
+}
+
+function spawnWall() {
+  let x, y;
+  do {
+    x = Math.floor(Math.random() * COLS);
+    y = Math.floor(Math.random() * ROWS);
+  } while (occupied(x, y));
+  walls.push({x, y});
+}
+
+function generateMaze() {
+  // Border walls
+  for (let x = 0; x < COLS; x++) { walls.push({x,y:0}); walls.push({x,y:ROWS-1}); }
+  for (let y = 1; y < ROWS-1; y++) { walls.push({x:0,y}); walls.push({x:COLS-1,y}); }
+
+  // Internal pattern based on level
+  const patterns = [
+    () => {
+      for (let x=4;x<COLS-4;x+=6) for(let y=4;y<ROWS-4;y+=3) walls.push({x,y});
+    },
+    () => {
+      for(let i=4;i<ROWS-4;i++) { walls.push({x:8,y:i}); walls.push({x:COLS-9,y:i}); }
+      // gaps
+      walls = walls.filter(w=>!(w.x===8&&w.y===Math.floor(ROWS/2))&&!(w.x===COLS-9&&w.y===Math.floor(ROWS/2)));
+    },
+    () => {
+      for(let x=4;x<COLS-4;x+=8) { for(let y=2;y<ROWS-2;y++) walls.push({x,y}); }
+      walls = walls.filter(w=>!(w.x%8===4&&(w.y===5||w.y===ROWS-6)));
+    }
+  ];
+  (patterns[(level-1)%patterns.length])();
+}
+
+function occupied(x, y) {
+  if (walls.some(w=>w.x===x&&w.y===y)) return true;
+  if (foods.some(f=>f.x===x&&f.y===y)) return true;
+  if (portals.some(p=>p.x===x&&p.y===y)) return true;
+  for (const s of snakes) if (s.body.some(b=>b.x===x&&b.y===y)) return true;
+  return false;
+}
+
+function spawnFood() {
+  const types = ['apple','apple','apple','banana','cherry','bonus'];
+  const weights = gameMode==='survival' ? [1,1,1,0.5,0.5,0.3] : [1,1,1,0.5,0.5,0.2];
+  let t = 'apple';
+  const r = Math.random();
+  if (r < 0.5) t='apple'; else if(r<0.7) t='banana'; else if(r<0.85) t='cherry'; else t='bonus';
+
+  let x, y, tries=0;
+  do {
+    x = Math.floor(Math.random()*COLS);
+    y = Math.floor(Math.random()*ROWS);
+    tries++;
+  } while (occupied(x,y) && tries < 100);
+
+  foods.push({x, y, type:t, age:0});
+}
+
+function spawnPowerup() {
+  const types = ['speed','ghost','mega','slow'];
+  const t = types[Math.floor(Math.random()*types.length)];
+  let x, y, tries=0;
+  do {
+    x = Math.floor(Math.random()*COLS);
+    y = Math.floor(Math.random()*ROWS);
+    tries++;
+  } while (occupied(x,y) && tries<100);
+  bonusItems.push({x, y, type:t, age:0});
+}
+
+// ── INIT GAME ──
+function initGame() {
+  snakes = [];
+  const p1 = new Snake(6, ROWS>>1, '#00ffaa', '#00aa66', {x:1,y:0});
+  snakes.push(p1);
+
+  if (gameMode === 'multiplayer' || gameMode === 'battle') {
+    const p2 = new Snake(COLS-7, ROWS>>1, '#ff4466', '#aa2244', {x:-1,y:0});
+    snakes.push(p2);
+  }
+
+  level = 1;
+  initLevel();
+  updateUI();
+}
+
+// ── DRAW ──
+function drawGrid() {
+  ctx.fillStyle = '#050810';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // subtle grid
+  ctx.strokeStyle = 'rgba(26,37,64,0.4)';
+  ctx.lineWidth = 0.5;
+  for (let x=0;x<COLS;x++) {
+    ctx.beginPath(); ctx.moveTo(x*CELL,0); ctx.lineTo(x*CELL,canvas.height); ctx.stroke();
+  }
+  for (let y=0;y<ROWS;y++) {
+    ctx.beginPath(); ctx.moveTo(0,y*CELL); ctx.lineTo(canvas.width,y*CELL); ctx.stroke();
+  }
+}
+
+function drawWalls() {
+  walls.forEach(w => {
+    ctx.fillStyle = '#1a2c50';
+    ctx.fillRect(w.x*CELL, w.y*CELL, CELL, CELL);
+    ctx.strokeStyle = '#223366';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(w.x*CELL+0.5, w.y*CELL+0.5, CELL-1, CELL-1);
+    // inner detail
+    ctx.fillStyle = 'rgba(68,100,150,0.3)';
+    ctx.fillRect(w.x*CELL+2, w.y*CELL+2, CELL-4, CELL-4);
+  });
+}
+
+function drawPortals() {
+  portals.forEach((p, i) => {
+    const hue = i === 0 ? '#44aaff' : '#aa44ff';
+    const t = Date.now()/500;
+    ctx.save();
+    ctx.translate(p.x*CELL+CELL/2, p.y*CELL+CELL/2);
+    ctx.rotate(t);
+
+    for (let r=0;r<3;r++) {
+      ctx.beginPath();
+      ctx.arc(0, 0, (CELL/2-2)*(1-r*0.25) + Math.sin(t*3+r)*2, 0, Math.PI*2);
+      ctx.strokeStyle = hue + (r===0?'ff':'88');
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+function drawFood() {
+  foods.forEach(f => {
+    const cx = f.x*CELL+CELL/2, cy = f.y*CELL+CELL/2;
+    const bounce = Math.sin(Date.now()/300 + f.x*0.5 + f.y*0.5)*2;
+
+    ctx.save();
+    ctx.translate(cx, cy + bounce);
+
+    if (f.type === 'apple') {
+      // glow
+      const grd = ctx.createRadialGradient(0,0,1,0,0,CELL/2);
+      grd.addColorStop(0,'rgba(255,80,80,0.6)');
+      grd.addColorStop(1,'transparent');
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(0,0,CELL/2,0,Math.PI*2); ctx.fill();
+      // apple
+      ctx.fillStyle = '#ff4444';
+      ctx.beginPath(); ctx.arc(-1,-1,CELL/2-3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#ff6666';
+      ctx.beginPath(); ctx.arc(-2,-3,3,0,Math.PI*2); ctx.fill();
+    } else if (f.type === 'banana') {
+      ctx.fillStyle = '#ffcc00';
+      ctx.beginPath();
+      ctx.ellipse(0,0,CELL/2-2,CELL/4,Math.PI/4,0,Math.PI*2);
+      ctx.fill();
+    } else if (f.type === 'cherry') {
+      ctx.fillStyle = '#ff2266';
+      ctx.beginPath(); ctx.arc(-3,0,CELL/3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3,0,CELL/3,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#44bb44'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(0,-CELL/2,3,-CELL/2+2); ctx.stroke();
+    } else { // bonus
+      const rot = Date.now()/200;
+      ctx.rotate(rot);
+      const grd2 = ctx.createRadialGradient(0,0,1,0,0,CELL/2);
+      grd2.addColorStop(0,'rgba(255,136,255,0.9)');
+      grd2.addColorStop(1,'transparent');
+      ctx.fillStyle = grd2;
+      for(let i=0;i<5;i++){
+        ctx.rotate(Math.PI*2/5);
+        ctx.fillRect(-2,-CELL/2+2,4,CELL/4);
+      }
+    }
+    ctx.restore();
+  });
+}
+
+function drawBonusItems() {
+  bonusItems.forEach(b => {
+    const cx = b.x*CELL+CELL/2, cy = b.y*CELL+CELL/2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Date.now()/400);
+
+    const colors = {speed:'#ffcc00',ghost:'#44aaff',mega:'#ff88ff',slow:'#00ffaa'};
+    const labels = {speed:'⚡',ghost:'👻',mega:'★',slow:'❄'};
+
+    const grd = ctx.createRadialGradient(0,0,1,0,0,CELL/2);
+    grd.addColorStop(0, colors[b.type]+'99');
+    grd.addColorStop(1,'transparent');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(0,0,CELL/2+2,0,Math.PI*2); ctx.fill();
+
+    ctx.restore();
+    ctx.fillStyle = colors[b.type];
+    ctx.font = `${CELL*0.7}px serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(labels[b.type], cx, cy);
+  });
+}
+
+function drawSnake(snake) {
+  if (!snake.alive) return;
+  snake.body.forEach((seg, i) => {
+    const x = seg.x*CELL, y = seg.y*CELL;
+    const t = i / snake.body.length;
+
+    if (i === 0) {
+      // head
+      ctx.shadowColor = snake.color;
+      ctx.shadowBlur = snake.powerup ? 20 : 12;
+      ctx.fillStyle = snake.color;
+      ctx.beginPath();
+      ctx.roundRect(x+1,y+1,CELL-2,CELL-2,3);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // eyes
+      const ex = snake.dir.x, ey = snake.dir.y;
+      const ex2 = ex===0?1:0, ey2 = ey===0?1:0;
+      ctx.fillStyle = '#050810';
+      const offset = CELL*0.25;
+      ctx.beginPath();
+      ctx.arc(x+CELL/2 + ex*offset + ex2*offset*0.5,
+              y+CELL/2 + ey*offset + ey2*offset*0.5,2,0,Math.PI*2);
+      ctx.arc(x+CELL/2 + ex*offset - ex2*offset*0.5,
+              y+CELL/2 + ey*offset - ey2*offset*0.5,2,0,Math.PI*2);
+      ctx.fill();
+    } else {
+      const alpha = 0.7 + 0.3*(1-t);
+      ctx.globalAlpha = snake.invincible ? 0.5 + Math.sin(Date.now()/100)*0.3 : alpha;
+      const size = 1 + t*0.5;
+      ctx.fillStyle = i%2===0 ? snake.color : snake.colorDark;
+      ctx.shadowColor = snake.color;
+      ctx.shadowBlur = snake.powerup ? 8 : 4;
+      ctx.beginPath();
+      ctx.roundRect(x+size,y+size,CELL-size*2,CELL-size*2,2);
+      ctx.fill();
+      ctx.shadowBlur=0;
+      ctx.globalAlpha=1;
+    }
+  });
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life/p.maxLife;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.size*p.life/p.maxLife,0,Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha=1;
+}
+
+// Particles
+let particles = [];
+function spawnParticles(x, y, color, count=8) {
+  for(let i=0;i<count;i++){
+    const a = Math.random()*Math.PI*2;
+    const s = 2+Math.random()*3;
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,color,size:4,life:30,maxLife:30});
+  }
+}
+function updateParticles() {
+  particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vx*=0.92;p.vy*=0.92;p.life--;});
+  particles=particles.filter(p=>p.life>0);
+}
+
+// ── GAME TICK ──
+function tick() {
+  frameCount++;
+  const speed = getSpeed();
+  const interval = Math.round(60 / speed);
+
+  // Powerup spawn
+  if (frameCount % 120 === 0 && bonusItems.length < 2) spawnPowerup();
+
+  // Extra food in timed mode
+  if (gameMode === 'timed' && frameCount % 90 === 0 && foods.length < 4) spawnFood();
+
+  // Timer countdown
+  if ((gameMode === 'timed' || gameMode === 'survival') && frameCount % 60 === 0) {
+    timerLeft--;
+    if (timerLeft <= 0) {
+      endGame(false, 'TIME UP!');
+      return;
+    }
+    document.getElementById('hudTime').textContent = timerLeft + 's';
+  }
+
+  // Decay combo
+  if (Date.now() - lastFoodTime > 3000) comboCount = 1;
+  document.getElementById('hudCombo').textContent = 'x' + comboCount;
+
+  // Move snakes
+  if (frameCount % Math.max(1, Math.round(interval / (snakes[0].speedMult||1))) === 0) {
+    moveSnake(snakes[0]);
+  }
+  if (snakes[1] && frameCount % Math.max(1, Math.round(interval / (snakes[1].speedMult||1))) === 0) {
+    moveSnake(snakes[1]);
+  }
+
+  updateParticles();
+  render();
+  updateUI();
+}
+
+function moveSnake(snake) {
+  if (!snake.alive) return;
+  const prevPos = {...snake.head};
+  snake.move(walls, portals);
+
+  // Wall collision (maze mode / no wrap)
+  if (gameMode === 'maze') {
+    const h = snake.head;
+    if (h.x<0||h.x>=COLS||h.y<0||h.y>=ROWS) { killSnake(snake); return; }
+  }
+  if (!snake.invincible && snake.hitWall(walls)) { killSnake(snake); return; }
+
+  // Self collision
+  if (!snake.invincible && snake.hitSelf()) { killSnake(snake); return; }
+
+  // Opponent collision (multiplayer)
+  if (snakes.length > 1 && !snake.invincible) {
+    const other = snakes.find(s => s !== snake);
+    if (other && other.alive) {
+      if (other.body.some(b => b.x === snake.head.x && b.y === snake.head.y)) {
+        if (gameMode === 'battle') {
+          killSnake(snake);
+          other.score += 50;
+        } else {
+          killSnake(snake);
+        }
+        return;
+      }
+    }
+  }
+
+  // Food check
+  const foodIdx = foods.findIndex(f => f.x===snake.head.x && f.y===snake.head.y);
+  if (foodIdx !== -1) {
+    const food = foods[foodIdx];
+    const pts = food.type==='apple' ? 10 : food.type==='banana' ? 20 : food.type==='cherry' ? 15 : 50;
+    const scored = pts * comboCount;
+    snake.score += scored;
+    snake.grow += food.type==='bonus' ? 5 : 1;
+    foods.splice(foodIdx, 1);
+    spawnFood();
+    eatSound();
+    spawnParticles(snake.head.x*CELL+CELL/2, snake.head.y*CELL+CELL/2, snake.color);
+    lastFoodTime = Date.now();
+    comboCount = Math.min(comboCount + 1, 8);
+    document.getElementById('hudFood').textContent = food.type==='apple'?'🍎':food.type==='banana'?'🍌':food.type==='cherry'?'🍒':'⭐';
+
+    // Level up in classic/maze/portal
+    const targetLength = 6 + level * 3;
+    if (snake.length >= targetLength && snakes.indexOf(snake)===0 && (gameMode==='classic'||gameMode==='maze'||gameMode==='portal')) {
+      levelUp();
+    }
+  }
+
+  // Powerup check
+  const pwIdx = bonusItems.findIndex(b => b.x===snake.head.x && b.y===snake.head.y);
+  if (pwIdx !== -1) {
+    snake.applyPowerup(bonusItems[pwIdx].type);
+    bonusItems.splice(pwIdx, 1);
+    spawnParticles(snake.head.x*CELL+CELL/2, snake.head.y*CELL+CELL/2, '#ff88ff', 12);
+  }
+
+  // Survival: spawn walls over time
+  if (gameMode === 'survival' && frameCount % 30 === 0 && walls.length < COLS*ROWS*0.2) {
+    spawnWall();
+  }
+}
+
+function killSnake(snake) {
+  dieSound();
+  spawnParticles(snake.head.x*CELL+CELL/2, snake.head.y*CELL+CELL/2, snake.color, 20);
+  snake.lives--;
+
+  if (snake.lives <= 0) {
+    snake.alive = false;
+
+    if (snakes.length === 1) {
+      endGame(false);
+    } else {
+      const other = snakes.find(s=>s!==snake);
+      if (!other || !other.alive) endGame(false);
+      else if (gameMode === 'battle' || gameMode === 'multiplayer') endGame(true, snakes.indexOf(other)===0?'P1 WINS':'P2 WINS');
+    }
+  } else {
+    // Respawn with invincibility
+    const idx = snakes.indexOf(snake);
+    const sx = idx===0 ? 6 : COLS-7;
+    const dir = idx===0 ? {x:1,y:0} : {x:-1,y:0};
+    snake.body = [{x:sx,y:ROWS>>1},{x:sx-dir.x,y:(ROWS>>1)},{x:sx-dir.x*2,y:(ROWS>>1)}];
+    snake.dir = {...dir}; snake.nextDir = {...dir};
+    snake.invincible = true; snake.powerup = 'ghost'; snake.powerTimer = 80;
+  }
+}
+
+function levelUp() {
+  level++;
+  levelSound();
+  initLevel();
+  // Re-init snakes positions but keep score
+  snakes.forEach((s, i) => {
+    const sx = i===0 ? 6 : COLS-7;
+    const dir = i===0 ? {x:1,y:0} : {x:-1,y:0};
+    s.body = [{x:sx,y:ROWS>>1},{x:sx-dir.x,y:ROWS>>1},{x:sx-dir.x*2,y:ROWS>>1}];
+    s.dir={...dir}; s.nextDir={...dir};
+  });
+  document.getElementById('hudLevel').textContent = level;
+  showLevelBanner();
+}
+
+function showLevelBanner() {
+  // Flash effect
+  const overlay = document.getElementById('overlay');
+  overlay.style.display = 'flex';
+  overlay.style.background = 'rgba(5,8,16,0.7)';
+  document.getElementById('overlayTitle').textContent = 'LEVEL ' + level;
+  document.getElementById('overlaySub').textContent = 'Get ready...';
+  document.getElementById('winnerBadge').innerHTML = '';
+  document.getElementById('startBtn').style.display = 'none';
+  setTimeout(() => {
+    overlay.style.display = 'none';
+    document.getElementById('startBtn').style.display = 'block';
+    overlay.style.background = 'rgba(5,8,16,0.92)';
+  }, 1500);
+}
+
+function endGame(win, msg) {
+  gameState = 'gameover';
+  clearInterval(gameLoop);
+  gamesPlayed++;
+  document.getElementById('gamesPlayed').textContent = gamesPlayed;
+
+  const topScore = Math.max(...snakes.map(s=>s.score));
+  if (topScore > hiScore) {
+    hiScore = topScore;
+    document.getElementById('hiScore').textContent = hiScore;
+  }
+
+  const overlay = document.getElementById('overlay');
+  overlay.style.display = 'flex';
+  document.getElementById('overlayTitle').textContent = msg || (win ? 'YOU WIN!' : 'GAME OVER');
+  document.getElementById('overlaySub').textContent = `Score: ${topScore} | Level: ${level}`;
+  document.getElementById('startBtn').style.display = 'block';
+  document.getElementById('startBtn').textContent = 'PLAY AGAIN';
+
+  const badge = document.getElementById('winnerBadge');
+  if (msg && (msg.includes('P1')||msg.includes('P2'))) {
+    badge.innerHTML = `<div class="winner-badge ${msg.includes('P1')?'badge-p1':'badge-p2'}">${msg}</div>`;
+  } else { badge.innerHTML=''; }
+}
+
+// ── RENDER ──
+function render() {
+  drawGrid();
+  drawWalls();
+  if (gameMode==='portal') drawPortals();
+  drawFood();
+  drawBonusItems();
+  snakes.forEach(drawSnake);
+  drawParticles();
+}
+
+// ── UI ──
+function updateUI() {
+  if (!snakes[0]) return;
+  document.getElementById('score1').textContent = snakes[0].score;
+  document.getElementById('len1').textContent = snakes[0].length;
+  document.getElementById('lives1').textContent = '♥'.repeat(snakes[0].lives);
+  document.getElementById('spd1').textContent = (snakes[0].speedMult||1).toFixed(1)+'x';
+
+  if (snakes[1]) {
+    document.getElementById('score2').textContent = snakes[1].score;
+    document.getElementById('len2').textContent = snakes[1].length;
+    document.getElementById('lives2').textContent = '♥'.repeat(snakes[1].lives);
+  } else {
+    document.getElementById('score2').textContent = '—';
+    document.getElementById('len2').textContent = '—';
+    document.getElementById('lives2').textContent = '—';
+  }
+
+  // Powerup indicators
+  ['speed','ghost','mega','slow'].forEach(t => {
+    const el = document.getElementById('pw-'+t+'1');
+    if (el) el.classList.toggle('active', snakes[0].powerup===t);
+  });
+}
+
+function updateLevelBar() {
+  const bar = document.getElementById('levelBar');
+  bar.innerHTML = '';
+  for(let i=1;i<=10;i++){
+    const d = document.createElement('div');
+    d.className = 'level-dot' + (i<level?' done':i===level?' current':'');
+    bar.appendChild(d);
+  }
+}
+
+// ── CONTROLS ──
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  const s1 = snakes[0], s2 = snakes[1];
+  switch(e.key) {
+    case 'ArrowUp': case 'w': case 'W': if(s1&&s1.alive) s1.setDir(0,-1); break;
+    case 'ArrowDown': case 's': case 'S': if(s1&&s1.alive) s1.setDir(0,1); break;
+    case 'ArrowLeft': case 'a': case 'A': if(s1&&s1.alive) s1.setDir(-1,0); break;
+    case 'ArrowRight': case 'd': case 'D': if(s1&&s1.alive) s1.setDir(1,0); break;
+    case 'i': case 'I': if(s2&&s2.alive) s2.setDir(0,-1); break;
+    case 'k': case 'K': if(s2&&s2.alive) s2.setDir(0,1); break;
+    case 'j': case 'J': if(s2&&s2.alive) s2.setDir(-1,0); break;
+    case 'l': case 'L': if(s2&&s2.alive) s2.setDir(1,0); break;
+    case 'p': case 'P':
+      if(gameState==='running'){gameState='paused';clearInterval(gameLoop);showPause();}
+      else if(gameState==='paused'){gameState='running';hidePause();startGameLoop();}
+      break;
+    case 'r': case 'R': if(gameState!=='idle') startGame(); break;
+  }
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+});
+
+function showPause() {
+  const overlay = document.getElementById('overlay');
+  overlay.style.display='flex';
+  document.getElementById('overlayTitle').textContent='PAUSED';
+  document.getElementById('overlaySub').textContent='Press P to resume';
+  document.getElementById('startBtn').style.display='none';
+  document.getElementById('winnerBadge').innerHTML='';
+}
+function hidePause() {
+  document.getElementById('overlay').style.display='none';
+  document.getElementById('startBtn').style.display='block';
+}
+
+// ── MODE SELECT ──
+function setMode(mode, btn) {
+  gameMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('hudMode').textContent = mode.toUpperCase();
+
+  // Update HUD timer visibility
+  const hasTimer = mode==='timed'||mode==='survival';
+  document.querySelector('.hud-chip.warn').style.opacity = hasTimer ? 1 : 0.5;
+  document.getElementById('hudTime').textContent = hasTimer ? timerLeft+'s' : '∞';
+}
+
+// ── START ──
+function startGame() {
+  AC.resume();
+  gameState = 'running';
+  document.getElementById('overlay').style.display='none';
+  initGame();
+  clearInterval(gameLoop);
+  startGameLoop();
+  document.getElementById('hudLevel').textContent = level;
+  document.getElementById('hudMode').textContent = gameMode.toUpperCase();
+  document.getElementById('startBtn').textContent = 'START GAME';
+}
+
+function startGameLoop() {
+  gameLoop = setInterval(() => { if(gameState==='running') tick(); }, 1000/60);
+}
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+
+// Initial render
+drawGrid();
+updateLevelBar();
+</script>
+</body>
+</html>
